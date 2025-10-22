@@ -1,14 +1,12 @@
 """Reminders service."""
 
 import re
-import traceback
-import base64
 import json
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from datetime import datetime, timezone
-from enum import Enum, IntEnum, unique
-from typing import Any, Generator, Iterable, Iterator, Mapping, Optional, cast, Union
+from enum import Enum
+from typing import Any, Iterable, Iterator, Optional, Union
 from urllib.parse import urlencode
 
 from requests import Response
@@ -32,8 +30,13 @@ PRIMARY_ZONE: dict[str, str] = {
 
 ## https://stackoverflow.com/a/1176023
 snake_case_pattern = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
 def to_snake_case(data: str) -> str:
-    return snake_case_pattern.sub('_', data).lower().replace("_i_ds", "_ids") ## Assume "_i_ds" is a regex typo for "_ids"
+    return (
+        snake_case_pattern.sub("_", data).lower().replace("_i_ds", "_ids")
+    )  ## Assume "_i_ds" is a regex typo for "_ids"
+
 
 def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
     """Unmarshall the data received from iCloud."""
@@ -41,17 +44,13 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
     def timestamp_milliseconds_to_datetime(ts: int) -> Union[datetime, None]:
         """Convert a timestamp in milliseconds to a datetime object."""
         try:
-            return datetime.fromtimestamp(
-                ts / 1000.0, timezone.utc
-            )
+            return datetime.fromtimestamp(ts / 1000.0, timezone.utc)
         except ValueError:
             return None
 
     def timestamp_seconds_to_datetime(ts: int) -> Union[datetime, None]:
         try:
-            return datetime.fromtimestamp(
-                ts, timezone.utc
-            )
+            return datetime.fromtimestamp(ts, timezone.utc)
         except ValueError:
             return None
 
@@ -65,7 +64,7 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
         }
 
         if isinstance(data, bool):
-            if data == True:
+            if data is True:
                 raise AssertionError(
                     "Activity data should be a dict or boolean False. Received True instead."
                 )
@@ -74,20 +73,16 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
                 f"Invalid activity data (expected a dict or boolean False): {data}"
             )
 
-        if data == False:
-            return result;
+        if not data:
+            return result
 
         if "timestamp" not in data:
-            raise ValueError(
-                f"Invalid activity data (missing 'timestamp'): {data}"
-            )
+            raise ValueError(f"Invalid activity data (missing 'timestamp'): {data}")
         else:
             result["timestamp"] = timestamp_milliseconds_to_datetime(data["timestamp"])
 
         if result["timestamp"] is None:
-            raise ValueError(
-                f"Invalid timestamp {data['timestamp']} in data {data}"
-            )
+            raise ValueError(f"Invalid timestamp {data['timestamp']} in data {data}")
 
         result["user_id"] = data.get("userRecordName", None)
         result["device_id"] = data.get("deviceID", None)
@@ -117,7 +112,9 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
                 elif field_value["type"] == "BOOLEAN":
                     fields[field_name] = bool(field_value["value"])
                 elif field_value["type"] == "TIMESTAMP":
-                    fields[field_name] = timestamp_milliseconds_to_datetime(field_value["value"])
+                    fields[field_name] = timestamp_milliseconds_to_datetime(
+                        field_value["value"]
+                    )
                 elif field_value["type"] == "ASSETID":
                     fields[field_name] = field_value["value"]
                 else:
@@ -134,19 +131,29 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
                         fields[field_name] = json.loads(field_value["value"])
                     except json.JSONDecodeError:
                         _LOGGER.warning(
-                            f"Failed to parse field %s with value %s in record %s",
+                            "Failed to parse field %s with value %s in record %s",
                             field_name,
                             field_value["value"],
                             result.get("record_id", "unknown"),
                         )
                         fields[field_name] = {}
-                elif field_name in ["deleted", "imported", "is_group", "is_linked_to_account", "should_categorize_grocery_items"]:
+                elif field_name in [
+                    "deleted",
+                    "imported",
+                    "is_group",
+                    "is_linked_to_account",
+                    "should_categorize_grocery_items",
+                ]:
                     ## These are boolean fields
-                    fields[field_name] = fields[field_name]  == 1
+                    fields[field_name] = fields[field_name] == 1
                 elif field_name in ["sorting_style"]:
-                    fields[field_name] = SortingStyleEnum.from_string(data["fields"].get(field_name, "manual")),
+                    fields[field_name] = (
+                        SortingStyleEnum.from_string(
+                            data["fields"].get(field_name, "manual")
+                        ),
+                    )
 
-            if not "name" in fields or not fields["name"]:
+            if "name" not in fields or not fields["name"]:
                 _LOGGER.warning(
                     "Field 'name' is missing or empty in record %s. Using 'Unknown' as default.",
                     result.get("record_id", "unknown"),
@@ -156,7 +163,11 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
         elif data_key == "share":
             ## This one is explicitly called out because it's an object
             result[to_snake_case(data_key)] = data_value
-        elif isinstance(data_value, str) or isinstance(data_value, int) or isinstance(data_value, bool):
+        elif (
+            isinstance(data_value, str)
+            or isinstance(data_value, int)
+            or isinstance(data_value, bool)
+        ):
             result[to_snake_case(data_key)] = data_value
         else:
             _LOGGER.warning(
@@ -169,7 +180,6 @@ def unmarshall(data: dict[str, Any]) -> dict[str, Any]:
             result[to_snake_case(data_key)] = data_value
 
     return result
-
 
 
 class SortingStyleEnum(str, Enum):
@@ -201,10 +211,12 @@ class SortingStyleEnum(str, Enum):
     #     """Return the string representation of the sorting style."""
     #     return self.value
 
+
 class BaseReminder:
     """Represents a reminder."""
 
-    def __init__(self,
+    def __init__(
+        self,
         service: "RemindersService",
         list_id: str,
         title: str,
@@ -254,7 +266,6 @@ class BaseReminder:
         return self._notes
 
 
-
 class BaseRemindersList(ABC):
     """Represents a Reminders list"""
 
@@ -271,7 +282,6 @@ class BaseRemindersList(ABC):
         deleted_date: Optional[datetime] = None,
         deleted_by_user: Optional[str] = None,
         deleted_by_device: Optional[str] = None,
-
         badge_emblem: Optional[str] = None,
         chain_private_key: Optional[str] = None,
         chain_protection_info: Optional[dict[str, Any]] = None,
@@ -353,10 +363,12 @@ class BaseRemindersList(ABC):
 
         data = unmarshall(record)
         if not data:
-            raise PyiCloudAPIResponseException("Failed to unmarshall record", repr(record))
+            raise PyiCloudAPIResponseException(
+                "Failed to unmarshall record", repr(record)
+            )
 
-        data['list_id'] = data.pop("record_id")
-        data['list_name'] = data["fields"].pop("name")
+        data["list_id"] = data.pop("record_id")
+        data["list_name"] = data["fields"].pop("name")
         del data["record_type"]
         for field_name, field_value in data["fields"].items():
             if field_name in data and field_name not in ["name"]:
@@ -369,17 +381,17 @@ class BaseRemindersList(ABC):
 
         try:
             ## Make list_name only Alphanumeric and underscores
-            file_name = re.sub(r"[^a-zA-Z0-9_]", "_", data["list_name"])
+            # file_name = re.sub(r"[^a-zA-Z0-9_]", "_", data["list_name"])
 
-            with open(f"/out/{file_name}.json", "w", encoding="utf-8") as f:
-                f.write(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True, default=str))
-        #    if "share" in data:
-        #        return SharedRemindersList.from_data(service, data)
-        #    elif "should_categorize_grocery_items" in data:
-        #        return EnhancedRemindersList.from_data(service, data)
-        #    else:
-        #        return StandardRemindersList.from_data(service, data)
-            return StandardRemindersList.from_data(service, data)
+            # with open(f"/out/{file_name}.json", "w", encoding="utf-8") as f:
+            #     f.write(json.dumps(data, indent=2, ensure_ascii=False, sort_keys=True, default=str))
+            if "share" in data:
+                return SharedRemindersList.from_data(service, data)
+            elif "should_categorize_grocery_items" in data:
+                return EnhancedRemindersList.from_data(service, data)
+            else:
+                return StandardRemindersList.from_data(service, data)
+        # return StandardRemindersList.from_data(service, data)
         except Exception as e:
             print(json.dumps(data, ensure_ascii=False, sort_keys=True, default=str))
             raise e
@@ -409,7 +421,7 @@ class BaseRemindersList(ABC):
             "modified_by_device": self.modified_by_device,
             "deleted_date": str(self.deleted_date) if self.deleted_date else None,
             "deleted_by_user": self.deleted_by_user,
-            "deleted_by_device": self.deleted_by_device
+            "deleted_by_device": self.deleted_by_device,
         }
 
     def to_json(self) -> str:
@@ -422,13 +434,15 @@ class BaseRemindersList(ABC):
     def reminders(self) -> dict[str, "BaseReminder"]:
         """Returns the reminders in the list."""
         if self._reminders is None:
-            self._reminders = self._fetch_reminders() # type: ignore
+            self._reminders = self._fetch_reminders()  # type: ignore
         return self._reminders
 
     ## Internal Methods
 
     def _fetch_reminders(self) -> dict[str, BaseReminder]:
-        query: dict[str, Any] = self._get_fetch_reminders_payload(include_completed=False, lookup_validating_reference=True)
+        query: dict[str, Any] = self._get_fetch_reminders_payload(
+            include_completed=False, lookup_validating_reference=True
+        )
 
         records: list[dict[str, Any]] = []
 
@@ -436,28 +450,33 @@ class BaseRemindersList(ABC):
         ## continuationMarker is allowed to be present and None -- stop
         ## continuationMarker is allowed to be present and a str -- loop
 
-        while not "continuationMarker" in query or query["continuationMarker"] is not None:
+        while (
+            "continuationMarker" not in query or query["continuationMarker"] is not None
+        ):
             request: Response = self.service.session.post(
                 url=f"{self.service.service_endpoint}/records/query",
                 data=json.dumps(query),
                 params=self.service.params,
-                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response: dict[str, Any] = request.json()
             records.extend(response["records"])
 
             query["continuationMarker"] = response.get("continuationMarker", None)
 
-
         lists: dict[str, BaseReminder] = {}
 
-        recordObjects = [] #[Reminder.from_record(service=self.service, record=record) for record in records]
-        for record in recordObjects:
+        record_objects = []  # [Reminder.from_record(service=self.service, record=record) for record in records]
+        for record in record_objects:
             lists[record.name] = record
 
         return lists
 
-    def _get_fetch_reminders_payload(self, include_completed: Optional[bool], lookup_validating_reference: Optional[bool]) -> dict[str, Any]:
+    def _get_fetch_reminders_payload(
+        self,
+        include_completed: Optional[bool],
+        lookup_validating_reference: Optional[bool],
+    ) -> dict[str, Any]:
         """Returns the payload for fetching reminders."""
         if include_completed is None:
             include_completed = False
@@ -473,10 +492,7 @@ class BaseRemindersList(ABC):
                         "fieldName": "listID",
                         "comparator": "EQUALS",
                         "fieldValue": {
-                            "value": {
-                                "recordName": self.list_id,
-                                "action": "VALIDATE"
-                            },
+                            "value": {"recordName": self.list_id, "action": "VALIDATE"},
                             "type": "REFERENCE",
                         },
                     },
@@ -495,21 +511,23 @@ class BaseRemindersList(ABC):
                             "value": 1 if lookup_validating_reference else 0,
                             "type": "INT64",
                         },
-                    }
+                    },
                 ],
             },
             "resultsLimit": 200,
             "zoneID": {
                 "zoneName": self.service.zone.zone_id.zone_name,
                 "ownerRecordName": self.service.zone.zone_id.owner_record_name,
-            }
+            },
         }
+
 
 class SimpleRemindersList(BaseRemindersList):
     """Represents a simple reminders list."""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+
 
 class StandardRemindersList(BaseRemindersList):
     """Represents the user's primary photo libraries."""
@@ -542,11 +560,16 @@ class StandardRemindersList(BaseRemindersList):
     def to_dict(self) -> dict[str, Any]:
         """Convert the RemindersList to a dict."""
 
-        dict = super().to_dict()
-        dict["expiration_date"] = str(self.expiration_date) if self.expiration_date else None
-        dict["parent_list"] = self.parent_list.to_dict() if self.parent_list else None
+        this_dict = super().to_dict()
+        this_dict["expiration_date"] = (
+            str(self.expiration_date) if self.expiration_date else None
+        )
+        this_dict["parent_list"] = (
+            self.parent_list.to_dict() if self.parent_list else None
+        )
 
-        return dict
+        return this_dict
+
 
 class SharedRemindersList(StandardRemindersList):
     """Represents the user's primary photo libraries."""
@@ -558,11 +581,16 @@ class SharedRemindersList(StandardRemindersList):
         short_guid: str,
         **kwargs,
     ) -> None:
+        should_auto_categorize_items = kwargs.pop("should_auto_categorize_items", None)
+
         super().__init__(**kwargs)
         self.share: dict[str, Any] = share
         self.stable_url: str = stable_url
         self.short_guid: str = short_guid
-        #self.expiration_date: Optional[datetime] = expiration_date
+        # self.expiration_date: Optional[datetime] = expiration_date
+
+        if should_auto_categorize_items:
+            self.should_auto_categorize_items: bool = should_auto_categorize_items
 
     @staticmethod
     def from_data(
@@ -600,117 +628,118 @@ class SharedRemindersList(StandardRemindersList):
             # deleted_by_device=data["deleted_by_device"],
         )
 
+        # @staticmethod
+        # def from_record(
+        #     service: "RemindersService",
+        #     record: dict[str, Any],
+        # ) -> "RemindersList":
+        #     """Create a RemindersList from a record."""
+        #     if record["recordType"] != "List":
+        #         raise PyiCloudAPIResponseException(
+        #             "Record is not a List", repr({"recordType": record["recordType"]})
+        #         )
 
-    # @staticmethod
-    # def from_record(
-    #     service: "RemindersService",
-    #     record: dict[str, Any],
-    # ) -> "RemindersList":
-    #     """Create a RemindersList from a record."""
-    #     if record["recordType"] != "List":
-    #         raise PyiCloudAPIResponseException(
-    #             "Record is not a List", repr({"recordType": record["recordType"]})
-    #         )
+        #     data = unmarshall(record)
+        #     if not data:
+        #         raise PyiCloudAPIResponseException("Failed to unmarshall record", repr(record))
 
-    #     data = unmarshall(record)
-    #     if not data:
-    #         raise PyiCloudAPIResponseException("Failed to unmarshall record", repr(record))
+        #     if "share" in data:
+        #         return SharedRemindersList(
+        #             service=service,
+        #             list_id=data["record_id"],
+        #             list_name=data["fields"].get("Name", ""),
+        #             sorting_style=SortingStyleEnum.from_string(data["fields"].get("SortingStyle", "manual")),
+        #             is_linked_to_account=data["fields"].get("IsLinkedToAccount", 0) == 1,
+        #             should_categorize_grocery_items=data["fields"].get("ShouldCategorizeGroceryItems", 0) == 1,
+        #             is_group=data["fields"].get("IsGroup", 0) == 1,
+        #             resolution_token_map=data["fields"].get("ResolutionTokenMap", {}),
+        #             imported=data["fields"].get("Imported", 0) == 1,
+        #             reminder_ids=data["fields"].get("ReminderIDs", []),
+        #             deleted= data["fields"].get("Deleted", 0) == 1,
+        #             declared_count=data["fields"].get("Count", 0),
+        #             plugin_fields=data["fields"].get("PluginFields", {}),
+        #             record_change_tag=data["fields"].get("RecordChangeTag", ""),
+        #             expiration_date=expiration_date,
+        #             share=data["share"],
+        #             stableUrl=data["stableURL"],
+        #             shortGUID=data["shortGUID"],
+        #             created_date=data["created"],
+        #             created_by_user=data["created_by_user"],
+        #             created_by_device=data["created_by_device"],
+        #             modified_date=data["modified"],
+        #             modified_by_user=data["modified_by_user"],
+        #             modified_by_device=data["modified_by_device"],
+        #             deleted_date=data["deleted"],
+        #             deleted_by_user=data["deleted_by_user"],
+        #             deleted_by_device=data["deleted_by_device"],
+        #         )
+        #     else:
+        #         return RemindersList(
+        #             service=service,
+        #             list_id=data["record_id"],
+        #             list_name=data["fields"].get("Name", ""),
+        #             sorting_style=SortingStyleEnum.from_string(data["fields"].get("SortingStyle", "manual")),
+        #             is_linked_to_account=data["fields"].get("IsLinkedToAccount", 0) == 1,
+        #             should_categorize_grocery_items=data["fields"].get("ShouldCategorizeGroceryItems", 0) == 1,
+        #             is_group=data["fields"].get("IsGroup", 0) == 1,
+        #             resolution_token_map=data["fields"].get("ResolutionTokenMap", {}),
+        #             imported=data["fields"].get("Imported", 0) == 1,
+        #             reminder_ids=data["fields"].get("ReminderIDs", []),
+        #             deleted= data["fields"].get("Deleted", 0) == 1,
+        #             declared_count=data["fields"].get("Count", 0),
+        #             plugin_fields=data["fields"].get("PluginFields", {}),
+        #             record_change_tag=data["fields"].get("RecordChangeTag", ""),
+        #             expiration_date=expiration_date,
+        #             created_date=data["created"],
+        #             created_by_user=data["created_by_user"],
+        #             created_by_device=data["created_by_device"],
+        #             modified_date=data["modified"],
+        #             modified_by_user=data["modified_by_user"],
+        #             modified_by_device=data["modified_by_device"],
+        #             deleted_date=data["deleted"],
+        #             deleted_by_user=data["deleted_by_user"],
+        #             deleted_by_device=data["deleted_by_device"],
+        #         )
 
-    #     if "share" in data:
-    #         return SharedRemindersList(
-    #             service=service,
-    #             list_id=data["record_id"],
-    #             list_name=data["fields"].get("Name", ""),
-    #             sorting_style=SortingStyleEnum.from_string(data["fields"].get("SortingStyle", "manual")),
-    #             is_linked_to_account=data["fields"].get("IsLinkedToAccount", 0) == 1,
-    #             should_categorize_grocery_items=data["fields"].get("ShouldCategorizeGroceryItems", 0) == 1,
-    #             is_group=data["fields"].get("IsGroup", 0) == 1,
-    #             resolution_token_map=data["fields"].get("ResolutionTokenMap", {}),
-    #             imported=data["fields"].get("Imported", 0) == 1,
-    #             reminder_ids=data["fields"].get("ReminderIDs", []),
-    #             deleted= data["fields"].get("Deleted", 0) == 1,
-    #             declared_count=data["fields"].get("Count", 0),
-    #             plugin_fields=data["fields"].get("PluginFields", {}),
-    #             record_change_tag=data["fields"].get("RecordChangeTag", ""),
-    #             expiration_date=expiration_date,
-    #             share=data["share"],
-    #             stableUrl=data["stableURL"],
-    #             shortGUID=data["shortGUID"],
-    #             created_date=data["created"],
-    #             created_by_user=data["created_by_user"],
-    #             created_by_device=data["created_by_device"],
-    #             modified_date=data["modified"],
-    #             modified_by_user=data["modified_by_user"],
-    #             modified_by_device=data["modified_by_device"],
-    #             deleted_date=data["deleted"],
-    #             deleted_by_user=data["deleted_by_user"],
-    #             deleted_by_device=data["deleted_by_device"],
-    #         )
-    #     else:
-    #         return RemindersList(
-    #             service=service,
-    #             list_id=data["record_id"],
-    #             list_name=data["fields"].get("Name", ""),
-    #             sorting_style=SortingStyleEnum.from_string(data["fields"].get("SortingStyle", "manual")),
-    #             is_linked_to_account=data["fields"].get("IsLinkedToAccount", 0) == 1,
-    #             should_categorize_grocery_items=data["fields"].get("ShouldCategorizeGroceryItems", 0) == 1,
-    #             is_group=data["fields"].get("IsGroup", 0) == 1,
-    #             resolution_token_map=data["fields"].get("ResolutionTokenMap", {}),
-    #             imported=data["fields"].get("Imported", 0) == 1,
-    #             reminder_ids=data["fields"].get("ReminderIDs", []),
-    #             deleted= data["fields"].get("Deleted", 0) == 1,
-    #             declared_count=data["fields"].get("Count", 0),
-    #             plugin_fields=data["fields"].get("PluginFields", {}),
-    #             record_change_tag=data["fields"].get("RecordChangeTag", ""),
-    #             expiration_date=expiration_date,
-    #             created_date=data["created"],
-    #             created_by_user=data["created_by_user"],
-    #             created_by_device=data["created_by_device"],
-    #             modified_date=data["modified"],
-    #             modified_by_user=data["modified_by_user"],
-    #             modified_by_device=data["modified_by_device"],
-    #             deleted_date=data["deleted"],
-    #             deleted_by_user=data["deleted_by_user"],
-    #             deleted_by_device=data["deleted_by_device"],
-    #         )
+        # def __repr__(self) -> str:
+        #     return self.to_json()
+        #     #return f"<RemindersList '{self.name}' ({self.list_id})>"
 
-    # def __repr__(self) -> str:
-    #     return self.to_json()
-    #     #return f"<RemindersList '{self.name}' ({self.list_id})>"
+        # def to_json(self) -> str:
+        #     return json.dumps({
+        #         "list_id": self.list_id,
+        #         "name": self.name,
+        #         "sorting_style": self.sorting_style.value,
+        #         "is_linked_to_account": self.is_linked_to_account,
+        #         "should_categorize_grocery_items": self.should_categorize_grocery_items,
+        #         "is_group": self.is_group,
+        #         "resolution_token_map": self.resolution_token_map,
+        #         "imported": self.imported,
+        #         "reminder_ids": self.reminder_ids,
+        #         "deleted": self.deleted,
+        #         "declared_count": self.declared_count,
+        #         "plugin_fields": self.plugin_fields,
+        #         "record_change_tag": self.record_change_tag,
+        #         "expiration_date": str(self.expiration_date) if self.expiration_date else None,
+        #         "created_date": str(self.created_date),
+        #         "created_by_user": self.created_by_user,
+        #         "created_by_device": self.created_by_device,
+        #         "modified_date": str(self.modified_date),
+        #         "modified_by_user": self.modified_by_user,
+        #         "modified_by_device": self.modified_by_device,
+        #         "deleted_date": str(self.deleted_date) if self.deleted_date else None,
+        #         "deleted_by_user": self.deleted_by_user,
+        #         "deleted_by_device": self.deleted_by_device,
+        #     }, indent=2, ensure_ascii=False)
 
-    # def to_json(self) -> str:
-    #     return json.dumps({
-    #         "list_id": self.list_id,
-    #         "name": self.name,
-    #         "sorting_style": self.sorting_style.value,
-    #         "is_linked_to_account": self.is_linked_to_account,
-    #         "should_categorize_grocery_items": self.should_categorize_grocery_items,
-    #         "is_group": self.is_group,
-    #         "resolution_token_map": self.resolution_token_map,
-    #         "imported": self.imported,
-    #         "reminder_ids": self.reminder_ids,
-    #         "deleted": self.deleted,
-    #         "declared_count": self.declared_count,
-    #         "plugin_fields": self.plugin_fields,
-    #         "record_change_tag": self.record_change_tag,
-    #         "expiration_date": str(self.expiration_date) if self.expiration_date else None,
-    #         "created_date": str(self.created_date),
-    #         "created_by_user": self.created_by_user,
-    #         "created_by_device": self.created_by_device,
-    #         "modified_date": str(self.modified_date),
-    #         "modified_by_user": self.modified_by_user,
-    #         "modified_by_device": self.modified_by_device,
-    #         "deleted_date": str(self.deleted_date) if self.deleted_date else None,
-    #         "deleted_by_user": self.deleted_by_user,
-    #         "deleted_by_device": self.deleted_by_device,
-    #     }, indent=2, ensure_ascii=False)
+        # def refresh(self) -> None:
+        #     """Refresh the reminders list."""
+        #     self._reminders: dict[str, BaseReminder] = self._fetch_reminders()
 
-    # def refresh(self) -> None:
-    #     """Refresh the reminders list."""
-    #     self._reminders: dict[str, BaseReminder] = self._fetch_reminders()
-
-    # def _fetch_reminders(self) -> dict[str, BaseReminder]:
-        query: dict[str, Any] = self._get_fetch_reminders_payload(include_completed=False, lookup_validating_reference=True)
+        # def _fetch_reminders(self) -> dict[str, BaseReminder]:
+        query: dict[str, Any] = self._get_fetch_reminders_payload(
+            include_completed=False, lookup_validating_reference=True
+        )
 
         records: list[dict[str, Any]] = []
 
@@ -718,33 +747,34 @@ class SharedRemindersList(StandardRemindersList):
         ## continuationMarker is allowed to be present and None -- stop
         ## continuationMarker is allowed to be present and a str -- loop
 
-        while not "continuationMarker" in query or query["continuationMarker"] is not None:
+        while (
+            "continuationMarker" not in query or query["continuationMarker"] is not None
+        ):
             request: Response = self.service.session.post(
                 url=f"{self.service.service_endpoint}/records/query",
                 data=json.dumps(query),
                 params=self.service.params,
-                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response: dict[str, Any] = request.json()
             records.extend(response["records"])
 
             query["continuationMarker"] = response.get("continuationMarker", None)
 
-
         lists: dict[str, BaseReminder] = {}
 
-        recordObjects = [] #[Reminder.from_record(service=self.service, record=record) for record in records]
-        for record in recordObjects:
+        record_objects = []  # [Reminder.from_record(service=self.service, record=record) for record in records]
+        for record in record_objects:
             lists[record.name] = record
 
         return lists
 
     def to_dict(self) -> dict[str, Any]:
-        dict = super().to_dict()
-        dict["share"] = self.share
-        dict["stable_url"] = self.stable_url
-        dict["short_guid"] = self.short_guid
-        return dict
+        this_dict = super().to_dict()
+        this_dict["share"] = self.share
+        this_dict["stable_url"] = self.stable_url
+        this_dict["short_guid"] = self.short_guid
+        return this_dict
 
     # @property
     # def reminders(self) -> dict[str, "BaseReminder"]:
@@ -753,16 +783,25 @@ class SharedRemindersList(StandardRemindersList):
     #         self._reminders = self._fetch_reminders() # type: ignore
     #     return self._reminders
 
+
 class EnhancedRemindersList(StandardRemindersList):
     """Represents an enhanced reminders list."""
 
     def __init__(
         self,
-        should_categorize_grocery_items: bool,
-        **kwargs
+        **kwargs,
     ) -> None:
+        should_auto_categorize_items = kwargs.pop("should_auto_categorize_items", None)
+        should_categorize_grocery_items = kwargs.pop(
+            "should_categorize_grocery_items", True
+        )
         super().__init__(**kwargs)
-        self.should_categorize_grocery_items: bool = should_categorize_grocery_items
+
+        if should_auto_categorize_items:
+            self.should_auto_categorize_items: bool = should_auto_categorize_items
+
+        if should_categorize_grocery_items:
+            self.should_categorize_grocery_items: bool = should_categorize_grocery_items
 
     @staticmethod
     def from_data(
@@ -775,9 +814,12 @@ class EnhancedRemindersList(StandardRemindersList):
         )
 
     def to_dict(self) -> dict[str, Any]:
-        dict = super().to_dict()
-        dict["should_categorize_grocery_items"] = self.should_categorize_grocery_items
-        return dict
+        this_dict = super().to_dict()
+        this_dict["should_categorize_grocery_items"] = (
+            self.should_categorize_grocery_items
+        )
+        return this_dict
+
 
 class ListsContainer(Iterable):
     def __init__(self, service: "RemindersService") -> None:
@@ -843,27 +885,30 @@ class ListsContainer(Iterable):
         ## continuationMarker is allowed to be present and None -- stop
         ## continuationMarker is allowed to be present and a str -- loop
 
-        while not "continuationMarker" in query or query["continuationMarker"] is not None:
+        while (
+            "continuationMarker" not in query or query["continuationMarker"] is not None
+        ):
             request: Response = self.service.session.post(
                 url=f"{self.service.service_endpoint}/records/query",
                 data=json.dumps(query),
                 params=self.service.params,
-                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response: dict[str, Any] = request.json()
             records.extend(response["records"])
 
             query["continuationMarker"] = response.get("continuationMarker", None)
 
-
         lists: dict[str, BaseRemindersList] = {}
 
-        recordObjects = [StandardRemindersList.from_record(service=self.service, record=record) for record in records]
-        for record in recordObjects:
+        record_objects = [
+            StandardRemindersList.from_record(service=self.service, record=record)
+            for record in records
+        ]
+        for record in record_objects:
             lists[record.name] = record
 
         return lists
-
 
 
 class ZoneObject:
@@ -889,7 +934,8 @@ class ZoneObject:
             )
         elif "isEligibleForZoneShare" not in record:
             raise PyiCloudAPIResponseException(
-                "Zone record should contain field 'isEligibleForZoneShare'", repr(record)
+                "Zone record should contain field 'isEligibleForZoneShare'",
+                repr(record),
             )
         elif "zoneID" not in record:
             raise PyiCloudAPIResponseException(
@@ -909,11 +955,13 @@ class ZoneObject:
             )
         elif "ownerRecordName" not in record["zoneID"]:
             raise PyiCloudAPIResponseException(
-                "Zone record's 'zoneID' field should contain 'ownerRecordName'", repr(record)
+                "Zone record's 'zoneID' field should contain 'ownerRecordName'",
+                repr(record),
             )
         elif "syncToken" in record and not isinstance(record["syncToken"], str):
             raise PyiCloudAPIResponseException(
-                "Zone records field 'syncToken' is optional but must be a str, if present", repr(record)
+                "Zone records field 'syncToken' is optional but must be a str, if present",
+                repr(record),
             )
 
         return ZoneObject(
@@ -938,9 +986,12 @@ class ZoneObject:
         self.zone_id: ZoneIDObject = ZoneIDObject.from_record(zone_id)
         self.url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
         self.atomic: bool = atomic
-        self.is_eligible_for_hierarchical_share: bool = is_eligible_for_hierarchical_share
+        self.is_eligible_for_hierarchical_share: bool = (
+            is_eligible_for_hierarchical_share
+        )
         self.is_eligible_for_zone_share: bool = is_eligible_for_zone_share
         self.sync_token: Optional[str] = sync_token
+
 
 class ZoneIDObject:
     """Represents a zone ID."""
@@ -951,16 +1002,22 @@ class ZoneIDObject:
         if not isinstance(record, dict):
             raise PyiCloudAPIResponseException("Record is not a dict", repr(record))
         elif "zoneName" not in record:
-            raise PyiCloudAPIResponseException("Record should contain 'zoneName'", repr(record))
+            raise PyiCloudAPIResponseException(
+                "Record should contain 'zoneName'", repr(record)
+            )
         elif "zoneType" not in record:
-            raise PyiCloudAPIResponseException("Record should contain 'zoneType'", repr(record))
+            raise PyiCloudAPIResponseException(
+                "Record should contain 'zoneType'", repr(record)
+            )
         elif "ownerRecordName" not in record:
-            raise PyiCloudAPIResponseException("Record should contain 'ownerRecordName'", repr(record))
+            raise PyiCloudAPIResponseException(
+                "Record should contain 'ownerRecordName'", repr(record)
+            )
 
         return ZoneIDObject(
             zone_name=record["zoneName"],
             zone_type=record["zoneType"],
-            owner_record_name=record["ownerRecordName"]
+            owner_record_name=record["ownerRecordName"],
         )
 
     def __init__(self, zone_name: str, zone_type: str, owner_record_name: str) -> None:
@@ -977,11 +1034,16 @@ class ZoneIDObject:
         }
 
     def __repr__(self) -> str:
-        return json.dumps({
-            "zoneName": self.zone_name,
-            "zoneType": self.zone_type,
-            "ownerRecordName": self.owner_record_name,
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "zoneName": self.zone_name,
+                "zoneType": self.zone_type,
+                "ownerRecordName": self.owner_record_name,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+
 
 class ZonesContainer(Iterable):
     def __init__(self, service: "RemindersService") -> None:
@@ -1018,17 +1080,14 @@ class ZonesContainer(Iterable):
         request: Response = self.service.session.get(
             url=f"{self.service.service_endpoint}/zones/list",
             params=self.service.params,
-            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, Any] = request.json()
 
         return [
-            ZoneObject.from_record(
-                service=self.service,
-                record=record
-            ) for record in response.get("zones", [])
+            ZoneObject.from_record(service=self.service, record=record)
+            for record in response.get("zones", [])
         ]
-
 
 
 class RemindersService(BaseService):

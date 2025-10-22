@@ -443,6 +443,17 @@ def display_hidemyemail(api: PyiCloudService) -> None:
     print(END_LIST)
 
 
+def display_reminders(api: PyiCloudService) -> None:
+    """Display Reminders lists"""
+
+    print(f"List of Reminders lists ({len(api.reminders.lists)}):")
+    for idx, reminder_list in enumerate(api.reminders.lists_container):
+        print(f"\t{idx}: {reminder_list.name}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+
 def setup() -> None:
     """Setup"""
     # Enable general debug logging
@@ -474,6 +485,7 @@ def main() -> None:
         display_photos(api)
         display_videos(api)
         display_shared_photos(api)
+        display_reminders(api)
 
 
 if __name__ == "__main__":
